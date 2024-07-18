@@ -5,7 +5,7 @@ from aliyunsdkcore.client import AcsClient
 from aliyunsdkcore.profile import region_provider
 from aliyunsdkcore.request import RpcRequest
 import json
-from sqlalchemy import create_engine, text, Table, Column, MetaData, Integer, String, Double, DateTime, DECIMAL, func
+from sqlalchemy import create_engine, text, Table, Column, MetaData, Integer, String, DateTime, DECIMAL, func
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 
@@ -88,7 +88,7 @@ class  Operator(object):
     engine = None
 
     def __init__(self):
-        engine = create_engine('mysql+pymysql://root:root@localhost:3306/quant',echo=True)
+        engine = create_engine('mysql+pymysql://root:123456@10.0.0.200:11306/quant',echo=True)
 
         Base.metadata.create_all(engine,checkfirst=True)
 
@@ -120,19 +120,6 @@ class Position(Base):
         return "Stock(id:{},code:{},quantity:{},price:{},trading_date:{}"\
             .format(self.id,self.code,self.quantity,self.price,self.trading_date)
 
-if __name__ == "__main__":
-    openTime = datetime.datetime.now().replace(hour=9,minute=30,second=0)
-    closeTime = datetime.datetime.now().replace(hour=15,minute=0,second=0)
-    while True:
-        now = datetime.datetime.now()
-        if now < openTime:
-            time.sleep(5)
-
-        if now > closeTime:
-            break
-
-        if (now > openTime and now < closeTime) :
-
 def process():
     session = Operator().Session()
     prositions = session.query(Position.id, Position.trading_date, Position.code, Position.quantity,
@@ -140,50 +127,63 @@ def process():
     cache = dict()
     for pos in prositions:
         print(pos)
-        # exPos = ExPosition()
-        # exPos.id = pos.id
-        # exPos.code = str(pos.code).zfill(6)
-        # exPos.price = pos.price
-        # exPos.quantity = pos.quantity
-        # last_stock_daily_quote = session.query(Stock_Daily_Quote).filter(
-        #     Stock_Daily_Quote.code == str(pos.code).zfill(6)).order_by(Stock_Daily_Quote.id.desc()).first()
-        # exPos.cur_price = last_stock_daily_quote.closing_price
-        # exPos.trading_date = pos.trading_date
-        # exPos.benefits = pos.quantity * (last_stock_daily_quote.closing_price - pos.price)
-        # exPositions.append(exPos)
-
         url = 'http://47.121.26.177:5001/api/public/stock_bid_ask_em?symbol='+pos.code
         # 发送HTTP GET请求
         response = requests.get(url)
         if response.status_code == 200:
-            data = response.json()
-            print(data)
+            datas = response.json()
+            print(datas)
+
+            q = [d for d in datas if d['code'] == pos.code]
+            info = dict()
+            for d in q:
+                info[q['item']] = d['value']
 
             if cache.get(pos.code) == None:
-                cache[pos.code] = data
+                cache[pos.code] = []
 
-            # for d in data_array:
-            #     if d["代码"] == pos.code:
-
+            cache[pos.code].append(info)
+            flag = judge(cache[pos.code])
+            if flag:
+                result = send_sms("15910696951", "{'name':'股票["+pos.code+"](V字形)'}")
+                print(str(result, encoding='utf-8'))
 
         else:
             print("请求失败，状态码:", response.status_code)
 
-    # url = 'http://47.121.26.177:5001/api/public/stock_bid_ask_em?symbol=000001'
-    # # 发送HTTP GET请求
-    # response = requests.get(url)
-    # if response.status_code == 200:
-    #     # 解析JSON数组
-    #     data_array = response.json()
-    #     print(data_array)
-    #
-    #     with open('temp.json', 'w') as file:
-    #         json.dump(data_array, file, indent=4)
-    #
-    #     # for d in data_array:
-    #     #     if d["代码"] == pos.code:
-    #
-    #
-    # else:
-    #     print("请求失败，状态码:", response.status_code)
+def judge(list):
+    if len(list) <= 0:
+        return False
 
+    last_day_value = list[0]['今开']
+    is_low = False
+    lowest_value = last_day_value
+    for q in list:
+        if q['最新'] < last_day_value and not is_low:
+            lowest_value = q['最新']
+
+        if q['最新'] < lowest_value and is_low:
+            lowest_value = q['最新']
+
+        if q['最新'] > last_day_value and is_low:
+            if (last_day_value - lowest_value)/last_day_value > 0.02:
+                return True
+
+    return False
+
+if __name__ == "__main__":
+    openTime = datetime.datetime.now().replace(hour=9,minute=30,second=0)
+    closeTime = datetime.datetime.now().replace(hour=15,minute=0,second=0)
+    while True:
+        now = datetime.datetime.now()
+        # if now < openTime:
+        #     time.sleep(5)
+        #
+        # if now > closeTime:
+        #     break
+        #
+        # if (now > openTime and now < closeTime) :
+        #     process()
+        #     time.sleep(5)
+        process()
+        time.sleep(5)
