@@ -107,6 +107,37 @@ def send_sms(phone_numbers, template_param=None):
 
     return sms_response
 
+class  Stock_Daily_Quote(Base):
+    __tablename__='stock_daily_quote'
+
+    id = Column(Integer,primary_key=True)
+    trading_date = Column(DateTime)
+    code = Column(String(40))
+    closing_price = Column(DECIMAL(10,2))
+    highest_price = Column(DECIMAL(10,2))
+    lowest_price = Column(DECIMAL(10,2))
+    opening_price = Column(DECIMAL(10,2))
+    last_closing_price = Column(DECIMAL(10,2))
+    diff_pice = Column(DECIMAL(10,2))
+    diff_rate = Column(DECIMAL(10,2))
+    turnover_rate = Column(DECIMAL(20,2))
+    turnover_quantity = Column(Integer)
+    turnover_amount = Column(DECIMAL(20,2))
+    total_market_value = Column(DECIMAL(20,2))
+    circulation_market_value = Column(DECIMAL(20,2))
+    deal_count = Column(Integer)
+    date_count = Column(Integer)
+    unique_code = Column(Integer)
+
+    def __repr__(self):
+        return ("Stock_Daily_Quote(id:{},trading_date:{},code:{},closing_price:{},highest_price:{},lowest_price:{},opening_price:{},"
+                "last_closing_price:{},diff_pice:{},diff_rate:{},turnover_rate:{},turnover_quantity:{},turnover_amount:{},"
+                "total_market_value:{},circulation_market_value:{},deal_count:{},date_count:{},unique_code::{})"
+                .format(self.id,self.trading_date,self.code,self.closing_price,self.highest_price,self.lowest_price,
+                        self.opening_price,self.last_closing_price,self.diff_pice,self.diff_rate,self.turnover_rate,
+                        self.turnover_quantity,self.turnover_amount,self.total_market_value,self.circulation_market_value,
+                        self.deal_count,self.date_count,self.unique_code))
+
 class Position(Base):
     __tablename__='position'
 
@@ -122,11 +153,19 @@ class Position(Base):
 
 def process():
     session = Operator().Session()
-    prositions = session.query(Position.id, Position.trading_date, Position.code, Position.quantity,
+    positions = session.query(Position.id, Position.trading_date, Position.code, Position.quantity,
                                Position.price).all()
     cache = dict()
-    for pos in prositions:
+    quotes = dict()
+    for pos in positions:
         print(pos)
+        if quotes[pos.code] == None:
+            last_stock_daily_quote = session.query(Stock_Daily_Quote).filter(
+                Stock_Daily_Quote.code == str(pos.code).zfill(6)).order_by(Stock_Daily_Quote.id.desc()).first()
+            quotes[pos.code] = last_stock_daily_quote
+
+        quote = quotes[pos.code]
+
         url = 'http://47.121.26.177:5001/api/public/stock_bid_ask_em?symbol='+pos.code
         # 发送HTTP GET请求
         response = requests.get(url)
@@ -143,7 +182,7 @@ def process():
                 cache[pos.code] = []
 
             cache[pos.code].append(info)
-            flag = judge(cache[pos.code])
+            flag = judge(cache[pos.code],quote)
             if flag:
                 result = send_sms("15910696951", "{'name':'股票["+pos.code+"](V字形)'}")
                 print(str(result, encoding='utf-8'))
@@ -151,22 +190,22 @@ def process():
         else:
             print("请求失败，状态码:", response.status_code)
 
-def judge(list):
+def judge(list,quote):
     if len(list) <= 0:
         return False
 
-    last_day_value = list[0]['今开']
+    last_closing_price = quote.closing_price
     is_low = False
-    lowest_value = last_day_value
+    lowest_value = last_closing_price
     for q in list:
-        if q['最新'] < last_day_value and not is_low:
-            lowest_value = q['最新']
+        if q['buy_1'] < last_closing_price and not is_low:
+            lowest_value = q['buy_1']
 
-        if q['最新'] < lowest_value and is_low:
-            lowest_value = q['最新']
+        if q['buy_1'] < lowest_value and is_low:
+            lowest_value = q['buy_1']
 
-        if q['最新'] > last_day_value and is_low:
-            if (last_day_value - lowest_value)/last_day_value > 0.02:
+        if q['buy_1'] > last_closing_price and is_low:
+            if (last_closing_price - lowest_value)/last_closing_price > 0.02:
                 return True
 
     return False
