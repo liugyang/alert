@@ -154,6 +154,7 @@ class Position(Base):
             .format(self.id,self.code,self.quantity,self.price,self.trading_date)
 
 def process(cache, quotes):
+    global lowest_value
     session = Operator().Session()
     positions = session.query(Position.id, Position.trading_date, Position.code, Position.quantity,
                                Position.price).all()
@@ -172,108 +173,100 @@ def process(cache, quotes):
             for d in result:
                 info[d['item']] = d['value']
 
-            if cache.get(pos.code) is None:
-                cache[pos.code] = []
-
-            cache[pos.code].append(info)
+            # if cache.get(pos.code) is None:
+            #     cache[pos.code] = []
+            #
+            # cache[pos.code].append(info)
             # q = [d for d in result if d['code'] == pos.code]
 
             #
             # if cache.get(pos.code) == None:
             #     cache[pos.code] = []
             # cache[pos.code].append(info)
-            flag = judge(cache[pos.code],quote)
+            # flag = judge(cache[pos.code],quote)
+            flag = judge(info, quote)
             if flag:
                 # result = send_sms("15910696951", "{'name':'股票["+pos.code+"](V字形)'}")
                 print("--------------SEND MESSAGE----------------")
-                print(str(result, encoding='utf-8'))
+                print("<突破>：当前价格：{:.2f}，最低价格:{:.2f}，昨日价格：{:.2f}".format(info['buy_1'],lowest_value,float(quote.closing_price)))
                 print("------------------------------------------")
 
-_cache = None
 index = 0
 is_low = False
-def loadCache():
-    global _cache
-    with open("cache.json", 'r') as file:
-        _cache = json.load(file)
-
-def downloadQuote(code):
-    global index
-    global _cache
-    if not _cache:
-        loadCache()
-
-    try:
-        if len(_cache) <= index:
-            return None
-        else:
-            r = _cache[index]
-            index = index + 1
-            return r
-    except IndexError:
-        print("********index:"+index+"*******")
-
-
+lowest_value = 10000
+# def loadCache():
+#     global _cache
+#     with open("cache.json", 'r') as file:
+#         _cache = json.load(file)
 
 # def downloadQuote(code):
-#     url = 'http://47.121.26.177:5001/api/public/stock_bid_ask_em?symbol=' + code
-#     # 发送HTTP GET请求
-#     response = requests.get(url)
-#     if response.status_code == 200:
-#         datas = response.json()
-#         print(datas)
-#         return datas
-#     else:
-#         print("请求失败，状态码:", response.status_code)
-#         return None
+#     global index
+#     global _cache
+#     if not _cache:
+#         loadCache()
+#
+#     try:
+#         if len(_cache) <= index:
+#             return None
+#         else:
+#             r = _cache[index]
+#             index = index + 1
+#             return r
+#     except IndexError:
+#         print("********index:"+index+"*******")
 
-def judge(list,quote):
+
+
+def downloadQuote(code):
+    url = 'http://47.121.26.177:5001/api/public/stock_bid_ask_em?symbol=' + code
+    # 发送HTTP GET请求
+    response = requests.get(url)
+    if response.status_code == 200:
+        datas = response.json()
+        print(datas)
+        return datas
+    else:
+        print("请求失败，状态码:", response.status_code)
+        return None
+
+def judge(info,quote):
+    print(info['buy_1'])
     global is_low
+    global lowest_value
 
-    if len(list) <= 0:
-        return False
+    last_closing_price = float(quote.closing_price)
 
-    last_closing_price = quote.closing_price
-
-    lowest_value = last_closing_price
-    for q in list:
-        try:
-            buy_1 = float(q['buy_1'])
-            #buy_1 = float('-')
-            if not is_low:
-                print("=====初步开始======")
-                if buy_1 < last_closing_price:
-                    print("=====价格低于昨日价格======")
-                    if buy_1 < lowest_value:
-                        print("=====价格进一步下探======")
-                        lowest_value = buy_1
-                        if (last_closing_price - lowest_value) / last_closing_price > 0.03:
-                            is_low = True
-                            print("=====价格降低到阈值======")
-            elif (buy_1 - last_closing_price) / last_closing_price > 0.005:
-                is_low = False
-                print("=====价格升高超过昨日价格======")
-                return True
-        except Exception as e:
-            print(f"###############:{e}")
+    try:
+        buy_1 = float(info['buy_1'])
+        if not is_low:
+            if buy_1 < last_closing_price:
+                print("=====价格低于昨日价格======")
+                if buy_1 < lowest_value:
+                    print("=====价格进一步下探======")
+                    lowest_value = buy_1
+                    if (last_closing_price - lowest_value) / last_closing_price > 0.03:
+                        is_low = True
+                        print("=====价格降低到阈值======")
+        elif (buy_1 - last_closing_price) / last_closing_price > 0.005:
+            is_low = False
+            print("=====价格升高超过昨日价格======")
+            return True
+    except Exception as e:
+        print(f"###############:{e}")
 
     return False
 
 if __name__ == "__main__":
     openTime = datetime.datetime.now().replace(hour=9,minute=30,second=0)
     closeTime = datetime.datetime.now().replace(hour=15,minute=0,second=0)
-    cache = dict()
     quotes = dict()
     while True:
         now = datetime.datetime.now()
-        # if now < openTime:
-        #     time.sleep(5)
-        #
-        # if now > closeTime:
-        #     break
-        #
-        # if (now > openTime and now < closeTime) :
-        #     process()
-        #     time.sleep(5)
-        process(cache,quotes)
-        # time.sleep(5)
+
+        if now > closeTime:
+            break
+
+        if (now > openTime and now < closeTime) :
+            process(quotes)
+
+        time.sleep(5)
