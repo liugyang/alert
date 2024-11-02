@@ -90,7 +90,7 @@ class  Operator(object):
     engine = None
 
     def __init__(self):
-        engine = create_engine('mysql+pymysql://root:123456@10.0.0.200:11306/quant',echo=False)
+        engine = create_engine('mysql+pymysql://quant:quant_123@rm-f8z603010v138x5id.mysql.rds.aliyuncs.com:3306/quant',echo=False)
 
         Base.metadata.create_all(engine,checkfirst=True)
 
@@ -153,7 +153,7 @@ class Position(Base):
         return "Stock(id:{},code:{},quantity:{},price:{},trading_date:{}"\
             .format(self.id,self.code,self.quantity,self.price,self.trading_date)
 
-def process(cache, quotes):
+def process(quotes, records, cache=None):
     global lowest_value
     session = Operator().Session()
     positions = session.query(Position.id, Position.trading_date, Position.code, Position.quantity,
@@ -186,10 +186,14 @@ def process(cache, quotes):
             # flag = judge(cache[pos.code],quote)
             flag = judge(info, quote)
             if flag:
-                # result = send_sms("15910696951", "{'name':'股票["+pos.code+"](V字形)'}")
-                print("--------------SEND MESSAGE----------------")
-                print("<突破>：当前价格：{:.2f}，最低价格:{:.2f}，昨日价格：{:.2f}".format(info['buy_1'],lowest_value,float(quote.closing_price)))
-                print("------------------------------------------")
+                if pos.code in records:
+                    result = send_sms("15910696951", "{'name':'股票["+pos.code+"](V字形)'}")
+                    print("--------------SEND MESSAGE----------------")
+                    print("<突破>：当前价格：{:.2f}，最低价格:{:.2f}，昨日价格：{:.2f}".format(info['buy_1'],lowest_value,float(quote.closing_price)))
+                    print("------------------------------------------")
+                    records.append(pos.code)
+                else:
+                    print("--------------SEND ALREADY，SKIPPED----------------")
 
 index = 0
 is_low = False
@@ -214,8 +218,6 @@ lowest_value = 10000
 #             return r
 #     except IndexError:
 #         print("********index:"+index+"*******")
-
-
 
 def downloadQuote(code):
     url = 'http://47.121.26.177:5001/api/public/stock_bid_ask_em?symbol=' + code
@@ -259,14 +261,19 @@ def judge(info,quote):
 if __name__ == "__main__":
     openTime = datetime.datetime.now().replace(hour=9,minute=30,second=0)
     closeTime = datetime.datetime.now().replace(hour=15,minute=0,second=0)
+    send_records = []
     quotes = dict()
     while True:
         now = datetime.datetime.now()
+
+        current_date = now.weekday()
+        if current_date in [5, 6]:
+            break
 
         if now > closeTime:
             break
 
         if (now > openTime and now < closeTime) :
-            process(quotes)
+            process(quotes=quotes,records=send_records)
 
         time.sleep(5)
